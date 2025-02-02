@@ -1,35 +1,37 @@
 package com.kuset.oauth.controller;
 
-import com.kuset.oauth.model.Token;
 import com.kuset.oauth.service.TokenService;
 
-import java.util.Optional;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.Map;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/api")
 public class TokenController {
-    private final TokenService tokenService;
 
-    public TokenController(TokenService tokenService) {
-        this.tokenService = tokenService;
-    }
+    @Autowired
+    private TokenService tokenService;
 
     @PostMapping("/token")
-    public ResponseEntity<Map<String, String>> getToken(@RequestParam String scopes) {
-        String token = tokenService.generateToken(scopes);
-        return ResponseEntity.ok(Map.of("token", token));
+    public ResponseEntity<TokenService.TokenResponse> issueToken(
+        @RequestParam String scopes
+    ) {
+        return ResponseEntity.ok(tokenService.issueToken(scopes));
     }
 
     @GetMapping("/check")
-    public ResponseEntity<?> checkToken(@RequestParam String token) {
-        Optional<Token> validToken = tokenService.validateToken(token);
-        if (validToken.isPresent()) {
-            return ResponseEntity.ok(Map.of("scopes", validToken.get().getScopes()));
-        }
-        return ResponseEntity.status(401).body(Map.of("error", "Invalid or expired token"));
+    public ResponseEntity<TokenService.ScopesResponse> checkToken(
+        @RequestParam String token
+    ) {
+        return ResponseEntity.ok(tokenService.checkToken(token));
+    }
+
+    @ExceptionHandler(TokenService.TokenException.class)
+    public ResponseEntity<String> handleTokenException(TokenService.TokenException ex) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ex.getMessage());
     }
 }

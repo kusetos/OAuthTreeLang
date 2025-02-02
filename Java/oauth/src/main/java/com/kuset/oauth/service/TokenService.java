@@ -6,41 +6,62 @@ import org.springframework.stereotype.Service;
 import java.util.Optional;
 import java.util.UUID;
 
-import java.time.Instant;
-
+import org.springframework.beans.factory.annotation.Autowired;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 @Service
 public class TokenService {
-    private final TokenRepository tokenRepository;
+    
+    @Autowired
+    private TokenRepository tokenRepository;
 
-    public TokenService(TokenRepository tokenRepository) {
-        this.tokenRepository = tokenRepository;
-    }
-
-    public String generateToken(String scopes) {
-        Instant now = Instant.now();
-        Instant expiryTime = now.plusSeconds(7200); // Token expires in 2 hours
-
-        // Generate a random token
-        String tokenValue = UUID.randomUUID().toString();
-
-        Token token = new Token(tokenValue, scopes, expiryTime);
-        tokenRepository.save(token);
-        return tokenValue;
-    }
-
-    public Optional<Token> validateToken(String token) {
-        Optional<Token> tokenOptional = tokenRepository.findById(token);
-
-        if (tokenOptional.isPresent()) {
-            Token storedToken = tokenOptional.get();
-            
-            // Check if token is expired
-            if (storedToken.getExpiresAt().isAfter(Instant.now())) {
-                return Optional.of(storedToken); // Valid token
-            } else {
-                tokenRepository.delete(storedToken); // Delete expired token
+    public TokenResponse issueToken(String scopes) {
+        LocalDateTime now = LocalDateTime.now();
+        
+        Optional<Token> existingToken = tokenRepository.findFirstByScopesOrderByExpiresAtDesc(scopes);
+        if (existingToken.isPresent()) {
+            long remaining = ChronoUnit.SECONDS.between(now, existingToken.get().getExpiresAt());
+            if (remaining > 1800) {
+                return new TokenResponse(
+                    existingToken.get().getToken(),
+                    remaining
+                );
             }
         }
-        return Optional.empty(); // Token is invalid or expired
+        
+        String newToken = UUID.randomUUID().toString();
+        LocalDateTime expiresAt = now.plusHours(2);
+        
+        Token token = new Token();
+        token.setToken(newToken);
+        token.setScopes(scopes);
+        token.setExpiresAt(expiresAt);
+        tokenRepository.save(token);
+        
+        return new TokenResponse(newToken, 7200);
+    }
+
+    public ScopesResponse checkToken(String token) {
+        Optional<Token> validToken = tokenRepository.findByTokenAndExpiresAtAfter(
+            token, 
+            LocalDateTime.now()
+        );
+        
+        if (validToken.isEmpty()) {
+            throw new TokenException("Invalid or expired token");
+        }
+        
+        return new ScopesResponse(validToken.get().getScopes());
+    }
+    
+    // DTOs
+    public record TokenResponse(String token, long expiresIn) {}
+    public record ScopesResponse(String scopes) {}
+    
+    // Custom Exception
+    public static class TokenException extends RuntimeException {
+        public TokenException(String message) {
+            super(message);
+        }
     }
 }
